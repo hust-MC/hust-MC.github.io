@@ -1,383 +1,408 @@
-﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
-<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
-<title>超哥&君君的相册空间</title> 
 
+<embed src="sj.mp3" width="0" height="0" border=0 autostart="ture" loop="2"></embed>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>3D照片墙图片展示代码 - 源码之家</title>
+
+<meta http-equiv="imagetoolbar" content="no">
 <style type="text/css">
-html {
-	overflow:hidden; 
-	-ms-touch-action:none;
-	-ms-content-zooming:none;
-}
-body {
-	position:absolute;
-	margin:0px;
-	padding:0px;
-	background:#fff;
-	width:100%;
-	height:100%;
-}
-#canvas {
-	position:absolute;
-	width:100%;
-	height:100%;
-	background:#fff;
-}
+	html {
+		overflow: hidden;
+	}
+	body {
+		position: absolute;
+		margin: 0px;
+		padding: 0px;
+		background: #eee;
+		width: 100%;
+		height: 100%;
+		color: #fff;
+		font-family: arial;
+		font-size: 0.8em;
+	}
+	#screen {
+		position: absolute;
+		width: 100%;
+		height: 100%;
+		background: #000;
+		overflow: hidden;
+	}
+	#screen img, canvas { 
+		position: absolute;
+		left: -9999px;
+		cursor: pointer;
+        image-rendering: optimizeSpeed;
+
+	}
+	#screen .href {
+		border: #FFF dotted 1px;
+	}
+	#screen .fog { 
+		position: absolute;
+		background: #fff;
+		opacity: 0.1;
+		filter: alpha(opacity=10);
+	}
+	#command {
+		position:absolute;
+		left: 1em;
+		top: 1em;
+		width: 130px;
+		z-index: 30000;
+		background:#000;
+		border: #000 solid 1em;
+	}
+	#bar {
+		position:relative;
+		left: 1em;
+		top: 1em;
+		height: 160px;
+	}
+	#bar .button { 
+		position: absolute;
+		background: #222;
+		width: 20px;
+		height: 20px;
+		cursor: pointer;
+	}
+	#bar .loaded { 
+		background: #666;
+	}
+	#bar .viewed { 
+		background: #fff;
+	}
+	#bar .selected { 
+		background: #f00;
+	}
+	#urlInfo {
+		position: absolute;
+		background: url(images/r.gif) no-repeat 0 4px;
+		visibility: hidden;
+		z-index: 30000;
+		padding-left: 12px;
+		cursor: pointer;
+	}
 </style>
 
-<script type="text/javascript" src="js/ge1doot.js"></script>
 <script type="text/javascript">
+// =============================================================
+//           ===== 3D gallery experiment =====
+// script written by Gerard Ferrandez - April 5, 2010
+// http://www.dhteumeuleu.com
+// use under a CC-BY-NC license
+// -------------------------------------------------------------
+// update: April 17 : added hyperlinks, tweaked z-index
+// =============================================================
 
-"use strict";
-
-(function () {
-	/* ==== definitions ==== */
-	var diapo = [], layers = [], ctx, pointer, scr, camera, light, fps = 0, quality = [1,2],
-	// ---- poly constructor ----
-	Poly = function (parent, face) {
-		this.parent = parent;
-		this.ctx    = ctx;
-		this.color  = face.fill || false;
-		this.points = [];
-		if (!face.img) {
-			// ---- create points ----
-			for (var i = 0; i < 4; i++) {
-				this.points[i] = new ge1doot.transform3D.Point(
-					parent.pc.x + (face.x[i] * parent.normalZ) + (face.z[i] * parent.normalX),
-					parent.pc.y +  face.y[i],
-					parent.pc.z + (face.x[i] * parent.normalX) + (-face.z[i] * parent.normalZ)
-				);
+var m3D = function () {
+	/* ---- private vars ---- */
+	var diapo = [],
+		imb,
+		scr,
+		bar,
+		selected,
+		urlInfo,
+		imagesPath = "images/",
+		camera = {x:0, y:0, z:-650, s:0, fov: 500},
+		nw = 0,
+		nh = 0;
+	/* ==== camera tween methods ==== */
+	camera.setTarget = function (c0, t1, p) {
+		if (Math.abs(t1 - c0) > .1) {
+			camera.s = 1;
+			camera.p = 0;
+			camera.d = t1 - c0;
+			if (p) {
+				camera.d *= 2;
+				camera.p = 9;
 			}
-			this.points[3].next = false;
 		}
-	},
-	// ---- diapo constructor ----
-	Diapo = function (path, img, structure) {
-		// ---- create image ----
-		this.img = new ge1doot.transform3D.Image(
-			this, path + img.img, 1, {
-				isLoaded: function(img) {
-					img.parent.isLoaded = true;
-					img.parent.loaded(img);
-				}
+	}
+	camera.tween = function (v) {
+		if (camera.s != 0) {
+			camera.p += camera.s;
+			camera[v] += camera.d * camera.p * .01;
+			if (camera.p == 10) camera.s = -1;
+			else if (camera.p == 0) camera.s = 0;
+		}
+		return camera.s;
+	}
+	/* ==== diapo constructor ==== */
+	var Diapo = function (n, img, x, y, z) {
+		if (img) {
+			this.url = img.url;
+			this.title = img.title;
+			this.color = img.color;
+			this.isLoaded = false;
+			if (document.createElement("canvas").getContext) {
+				/* ---- using canvas in place of images (performance trick) ---- */
+				this.srcImg = new Image();
+				this.srcImg.src = imagesPath + img.src;
+				this.img = document.createElement("canvas");
+				this.canvas = true;
+				scr.appendChild(this.img);
+			} else {
+				/* ---- normal image ---- */
+				this.img = document.createElement('img');
+				this.img.src = imagesPath + img.src;
+				scr.appendChild(this.img);
 			}
-		);
-		this.visible  = false;
-		this.normalX  = img.nx;
-		this.normalZ  = img.nz;
-		// ---- point center ----
-		this.pc = new ge1doot.transform3D.Point(img.x, img.y, img.z);
-		// ---- target positions ----
-		this.tx = img.x + (img.nx * Math.sqrt(camera.focalLength) * 20);
-		this.tz = img.z - (img.nz * Math.sqrt(camera.focalLength) * 20);
-		// ---- create polygons ----
-		this.poly = [];
-		for (var i = -1, p; p = structure[++i];) {
-			layers[i] = (p.img === true ? 1 : 2);
-			this.poly.push(
-				new Poly(this, p)
-			);
-		}
-	},
-	// ---- init section ----
-	init = function (json) {
-		// draw poly primitive
-		Poly.prototype.drawPoly = ge1doot.transform3D.drawPoly;
-		// ---- init screen ----
-		scr = new ge1doot.Screen({
-			container: "canvas"
-		});
-		ctx = scr.ctx;
-		scr.resize();
-		// ---- init pointer ----
-		pointer = new ge1doot.Pointer({
-			tap: function () {
-				if (camera.over) {
-					if (camera.over === camera.target.elem) {
-						// ---- return to the center ----
-						camera.target.x = 0;
-						camera.target.z = 0;
-						camera.target.elem = false;
+			/* ---- on click event ---- */
+			this.img.onclick = function () {
+				if (camera.s) return;
+				if (this.diapo.isLoaded) {
+					if (this.diapo.urlActive) {
+						/* ---- jump hyperlink ---- */
+						top.location.href = this.diapo.url;
 					} else {
-						// ---- goto diapo ----
-						camera.target.elem = camera.over;
-						camera.target.x = camera.over.tx;
-						camera.target.z = camera.over.tz;
-						// ---- adapt tesselation level to distance ----
-						for (var i = 0, d; d = diapo[i++];) {
-							var dx = camera.target.x - d.pc.x;
-							var dz = camera.target.z - d.pc.z;
-							var dist = Math.sqrt(dx * dx + dz * dz);
-							var lev = (dist > 1500) ? quality[0] : quality[1];
-							d.img.setLevel(lev);
+						/* ---- target positions ---- */
+						camera.tz = this.diapo.z - camera.fov;
+						camera.tx = this.diapo.x;
+						camera.ty = this.diapo.y;
+						/* ---- disable previously selected img ---- */
+						if (selected) {
+							selected.but.className = "button viewed";
+							selected.img.className = "";
+							selected.img.style.cursor = "pointer";
+							selected.urlActive = false;
+							urlInfo.style.visibility = "hidden";
 						}
+						/* ---- select current img ---- */
+						this.diapo.but.className = "button selected";
+						interpolation(false);
+						selected = this.diapo;
 					}
 				}
 			}
-		});
-		// ---- init camera ----
-		camera = new ge1doot.transform3D.Camera({
-			focalLength: Math.sqrt(scr.width) * 10,
-			easeTranslation: 0.025,
-			easeRotation: 0.06,
-			disableRz: true
-		}, {
-			move: function () {
-				this.over = false;
-				// ---- rotation ----
-				if (pointer.isDraging) {
-					this.target.elem = false;
-					this.target.ry = -pointer.Xi * 0.01;
-					this.target.rx = (pointer.Y - scr.height * 0.5) / (scr.height * 0.5);
-				} else {
-					if (this.target.elem) {
-						this.target.ry = Math.atan2(
-							this.target.elem.pc.x - this.x,
-							this.target.elem.pc.z - this.z
-						);
-					}
-				}
-				this.target.rx *= 0.9;
-			}
-		});
-		camera.z  = -10000;
-		camera.py = 0;
-		// ---- create images ----
-		for (var i = 0, img; img = json.imgdata[i++];) {
-			diapo.push(
-				new Diapo(
-					json.options.imagesPath, 
-					img, 
-					json.structure
-				)
-			);
-		}	
-		// ---- start engine ---- >>>
-		setInterval(function() {
-			quality = (fps > 50) ? [2,3] : [1,2];
-			fps = 0;
-		}, 1000);
-		run();
-	},
-	// ---- main loop ----
-	run = function () {
-		// ---- clear screen ----
-		ctx.clearRect(0, 0, scr.width, scr.height);
-		// ---- camera ----
-		camera.move();
-		// ---- draw layers ----
-		for (var k = -1, l; l = layers[++k];) {
-			light = false;
-			for (var i = 0, d; d = diapo[i++];) {
-				(l === 1 && d.draw()) || 
-				(d.visible && d.poly[k].draw());
-			}
-		}
-		// ---- cursor ----
-		if (camera.over && !pointer.isDraging) {
-			scr.setCursor("pointer");
+			/* ---- command bar buttons ---- */
+			this.but = document.createElement('div');
+			this.but.className = "button";
+			bar.appendChild(this.but);
+			this.but.diapo = this;
+			this.but.style.left = Math.round((this.but.offsetWidth  * 1.2) * (n % 4)) + 'px';
+			this.but.style.top  = Math.round((this.but.offsetHeight * 1.2) * Math.floor(n / 4)) + 'px';
+			this.but.onclick = this.img.onclick;
+			imb = this.img;
+			this.img.diapo = this;
+			this.zi = 25000;
 		} else {
-			scr.setCursor("move");
+			/* ---- transparent div ---- */
+			this.img = document.createElement('div');
+			this.isLoaded = true;
+			this.img.className = "fog";
+			scr.appendChild(this.img);
+			this.w = 300;
+			this.h = 300;
+			this.zi = 15000;
 		}
-		// ---- loop ----
-		fps++;
-		requestAnimFrame(run);
-	};
-	/* ==== prototypes ==== */
-	Poly.prototype.draw = function () {
-		// ---- color light ----
-		var c = this.color;
-		if (c.light || !light) {
-			var s = c.light ? this.parent.light : 1;
-			// ---- rgba color ----
-			light = "rgba(" + 
-				Math.round(c.r * s) + "," +
-				Math.round(c.g * s) + "," + 
-				Math.round(c.b * s) + "," + (c.a || 1) + ")";
-			ctx.fillStyle = light;
-		}
-		// ---- paint poly ----
-		if (!c.light || this.parent.light < 1) {
-			// ---- projection ----
-			for (
-				var i = 0; 
-				this.points[i++].projection();
-			);
-			this.drawPoly();
-			ctx.fill();
+		/* ---- object variables ---- */
+		this.x = x;
+		this.y = y;
+		this.z = z;
+		this.css = this.img.style;
+	}
+	/* ==== main 3D animation ==== */
+	Diapo.prototype.anim = function () {
+		if (this.isLoaded) {
+			/* ---- 3D to 2D projection ---- */
+			var x = this.x - camera.x;
+			var y = this.y - camera.y;
+			var z = this.z - camera.z;
+			if (z < 20) z += 5000;
+			var p = camera.fov / z;
+			var w = this.w * p;
+			var h = this.h * p;
+			/* ---- HTML rendering ---- */
+			this.css.left   = Math.round(nw + x * p - w * .5) + 'px';
+			this.css.top    = Math.round(nh + y * p - h * .5) + 'px';  
+			this.css.width  = Math.round(w) + 'px';
+			this.css.height = Math.round(h) + 'px';
+			this.css.zIndex = this.zi - Math.round(z);
+		} else {
+			/* ---- image is loaded? ---- */
+			this.isLoaded = this.loading();
 		}
 	}
-	/* ==== image onload ==== */
-	Diapo.prototype.loaded = function (img) {
-		// ---- create points ----
-		var d = [-1,1,1,-1,1,1,-1,-1];
-		var w = img.texture.width  * 0.5;
-		var h = img.texture.height * 0.5;
-		for (var i = 0; i < 4; i++) {
-			img.points[i] = new ge1doot.transform3D.Point(
-				this.pc.x + (w * this.normalZ * d[i]),
-				this.pc.y + (h * d[i + 4]),
-				this.pc.z + (w * this.normalX * d[i])
-			);
-		}
-	}
-	/* ==== images draw ==== */
-	Diapo.prototype.draw = function () {
-		// ---- visibility ----
-		this.pc.projection();
-		if (this.pc.Z > -(camera.focalLength >> 1) && this.img.transform3D(true)) {
-			// ---- light ----
-			this.light = 0.5 + Math.abs(this.normalZ * camera.cosY - this.normalX * camera.sinY) * 0.6;
-			// ---- draw image ----
-			this.visible = true;
-			this.img.draw();
-			// ---- test pointer inside ----
-			if (pointer.hasMoved || pointer.isDown) {
-				if (
-					this.img.isPointerInside(
-						pointer.X,
-						pointer.Y
-					)
-				) camera.over = this;
+	/* ==== onload initialization ==== */
+	Diapo.prototype.loading = function () {
+		if ((this.canvas && this.srcImg.complete) || this.img.complete) {
+			if (this.canvas) {
+				/* ---- canvas version ---- */
+				this.w = this.srcImg.width;
+				this.h = this.srcImg.height;
+				this.img.width = this.w;
+				this.img.height = this.h;
+				var context = this.img.getContext("2d");
+				context.drawImage(this.srcImg, 0, 0, this.w, this.h);
+			} else {
+				/* ---- plain image version ---- */
+				this.w = this.img.width;
+				this.h = this.img.height;
 			}
-		} else this.visible = false;
-		return true;
+			/* ---- button loaded ---- */
+			this.but.className += " loaded";
+			return true;
+		}
+		return false;
+	}
+	////////////////////////////////////////////////////////////////////////////
+	/* ==== screen dimensions ==== */
+	var resize = function () {
+		nw = scr.offsetWidth * .5;
+		nh = scr.offsetHeight * .5;
+	}
+	/* ==== disable interpolation during animation ==== */
+	var interpolation = function (bicubic) {
+		var i = 0, o;
+		while( o = diapo[i++] ) {
+			if (o.but) {
+				o.css.msInterpolationMode = bicubic ? 'bicubic' : 'nearest-neighbor'; // makes IE8 happy
+				o.css.imageRendering = bicubic ? 'optimizeQuality' : 'optimizeSpeed'; // does not really work...
+			}
+		}
+	}
+	/* ==== init script ==== */
+	var init = function (data) {
+		/* ---- containers ---- */
+		scr = document.getElementById("screen");
+		bar = document.getElementById("bar");
+		urlInfo = document.getElementById("urlInfo");
+		resize();
+		/* ---- loading images ---- */
+		var i = 0, 
+		    o,
+			n = data.length;
+		while( o = data[i++] ) {
+			/* ---- images ---- */
+			var x = 1000 * ((i % 4) - 1.5);
+			var y = Math.round(Math.random() * 4000) - 2000;
+			var z = i * (5000 / n);
+			diapo.push( new Diapo(i - 1, o, x, y, z));
+			/* ---- transparent frames ---- */
+			var k = diapo.length - 1;
+			for (var j = 0; j < 3; j++) {
+				var x = Math.round(Math.random() * 4000) - 2000;
+				var y = Math.round(Math.random() * 4000) - 2000;
+				diapo.push( new Diapo(k, null, x, y, z + 100));
+			}
+		}
+		/* ---- start engine ---- */
+		run();
+	}
+	////////////////////////////////////////////////////////////////////////////
+	/* ==== main loop ==== */
+	var run = function () {
+		/* ---- x axis move ---- */
+		if (camera.tx) {
+			if (!camera.s) camera.setTarget(camera.x, camera.tx);
+			var m = camera.tween('x');
+			if (!m) camera.tx = 0;
+		/* ---- y axis move ---- */
+		} else if (camera.ty) {
+			if (!camera.s) camera.setTarget(camera.y, camera.ty); 
+			var m = camera.tween('y');
+			if (!m) camera.ty = 0;
+		/* ---- z axis move ---- */
+		} else if (camera.tz) {
+			if (!camera.s) camera.setTarget(camera.z, camera.tz);
+			var m = camera.tween('z');
+			if (!m) {
+				/* ---- animation end ---- */
+				camera.tz = 0;
+				interpolation(true);
+				/* ---- activate hyperlink ---- */
+				if (selected.url) {
+					selected.img.style.cursor = "pointer";
+					selected.urlActive = true;
+					selected.img.className = "href";
+					urlInfo.diapo = selected;
+					urlInfo.onclick = selected.img.onclick;
+					urlInfo.innerHTML = selected.title || selected.url;
+					urlInfo.style.visibility = "visible";
+					urlInfo.style.color = selected.color || "#fff";
+					urlInfo.style.top = Math.round(selected.img.offsetTop + selected.img.offsetHeight - urlInfo.offsetHeight - 5) + "px";
+					urlInfo.style.left = Math.round(selected.img.offsetLeft + selected.img.offsetWidth - urlInfo.offsetWidth - 5) + "px";
+				} else {
+					selected.img.style.cursor = "default";
+				}
+			}
+		}
+		/* ---- anim images ---- */
+		var i = 0, o;
+		while( o = diapo[i++] ) o.anim();
+		/* ---- loop ---- */
+		setTimeout(run, 32);
 	}
 	return {
-		// --- load data ----
-		load : function (data) {
-			window.addEventListener('load', function () {
-				ge1doot.loadJS(
-					"js/imageTransform3D.js",
-					init, data
-				);
-			}, false);
-		}
+		////////////////////////////////////////////////////////////////////////////
+		/* ==== initialize script ==== */
+		init : init
 	}
-})().load({
-	imgdata:[
-		// north
-		{img:'imgs/1.jpg', x:-1000, y:0, z:1500, nx:0, nz:1},
-		{img:'imgs/2.jpg', x:0,     y:0, z:1500, nx:0, nz:1},
-		{img:'imgs/3.jpg', x:1000,  y:0, z:1500, nx:0, nz:1},
-		// east
-		{img:'imgs/4.jpg', x:1500,  y:0, z:1000, nx:-1, nz:0},
-		{img:'imgs/5.jpg', x:1500,  y:0, z:0, nx:-1, nz:0},
-		{img:'imgs/6.jpg', x:1500,  y:0, z:-1000, nx:-1, nz:0},
-		// south
-		{img:'imgs/7.jpg', x:1000,  y:0, z:-1500, nx:0, nz:-1},
-		{img:'imgs/8.jpg', x:0,     y:0, z:-1500, nx:0, nz:-1},
-		{img:'imgs/9.jpg', x:-1000, y:0, z:-1500, nx:0, nz:-1},
-		// west
-		{img:'imgs/10.jpg', x:-1500, y:0, z:-1000, nx:1, nz:0},
-		{img:'imgs/11.jpg', x:-1500, y:0, z:0, nx:1, nz:0},
-		{img:'imgs/12.jpg', x:-1500, y:0, z:1000, nx:1, nz:0}
-	],
-	structure:[
-		{
-			// wall
-			fill: {r:255, g:255, b:255, light:1},
-			x: [-1001,-490,-490,-1001],
-			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
-		},{
-			// wall
-			fill: {r:255, g:255, b:255, light:1},
-			x: [-501,2,2,-500],
-			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
-		},{
-			// wall
-			fill: {r:255, g:255, b:255, light:1},
-			x: [0,502,502,0],
-			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
-		},{
-			// wall
-			fill: {r:255, g:255, b:255, light:1},
-			x: [490,1002,1002,490],
-			z: [-500,-500,-500,-500],
-			y: [500,500,-500,-500]
-		},{
-			// shadow
-			fill: {r:0, g:0, b:0, a:0.2},
-			x: [-420,420,420,-420],
-			z: [-500,-500,-500,-500],
-			y: [150, 150,-320,-320]
-		},{
-			// shadow
-			fill: {r:0, g:0, b:0, a:0.2},
-			x: [-20,20,20,-20],
-			z: [-500,-500,-500,-500],
-			y: [250, 250,150,150]
-		},{
-			// shadow
-			fill: {r:0, g:0, b:0, a:0.2},
-			x: [-20,20,20,-20],
-			z: [-500,-500,-500,-500],
-			y: [-320, -320,-500,-500]
-		},{
-			// shadow
-			fill: {r:0, g:0, b:0, a:0.2},
-			x: [-20,20,10,-10],
-			z: [-500,-500,-100,-100],
-			y: [-500, -500,-500,-500]
-		},{
-			// base
-			fill: {r:32, g:32, b:32},
-			x: [-50,50,50,-50],
-			z: [-150,-150,-50,-50],
-			y: [-500,-500,-500,-500]
-		},{
-			// support
-			fill: {r:16, g:16, b:16},
-			x: [-10,10,10,-10],
-			z: [-100,-100,-100,-100],
-			y: [300,300,-500,-500]
-		},{
-			// frame
-			fill: {r:255, g:255, b:255},
-			x: [-320,-320,-320,-320],
-			z: [0,-20,-20,0],
-			y: [-190,-190,190,190]
-		},{
-			// frame
-			fill: {r:255, g:255, b:255},
-			x: [320,320,320,320],
-			z: [0,-20,-20,0],
-			y: [-190,-190,190,190]
-		},
-		{img:true},
-		{
-			// ceilingLight
-			fill: {r:255, g:128, b:0},
-			x: [-50,50,50,-50],
-			z: [450,450,550,550],
-			y: [500,500,500,500]
-		},{
-			// groundLight
-			fill: {r:255, g:128, b:0},
-			x: [-50,50,50,-50],
-			z: [450,450,550,550],
-			y: [-500,-500,-500,-500]
-		}
-	],
-	options:{
-		imagesPath: ""
-	}
-});
-</script>
+}();
 
-</head> 
+</script>
+</head>
+
 <body>
-<div style="text-align:center;clear:both;">
-<script src="/gg_bd_ad_720x90.js" type="text/javascript"></script>
-<script src="/follow.js" type="text/javascript"></script>
+<div id="screen">
+	<div id="command">
+
+		<h1>3D照片墙图片展示代码</h1>
+		 Defiant, stony, deliberate, their lies will not get in my way.
+		<div id="bar"></div>
+	</div>
+	<div id="urlInfo"></div>
 </div>
 
-<canvas id="canvas">你的浏览器不支持HTML5画布技术，请使用谷歌浏览器。</canvas>
-
-
+<script type="text/javascript">
+/* ==== start script ==== */
+setTimeout(function() {
+	m3D.init(
+		[ 
+			{ src: '1.jpg' },	
+			{ src: '2.jpg' },
+			{ src: '3.jpg' },
+			{ src: '4.jpg' },
+			{ src: '5.jpg' },
+			{ src: '6.jpg' },
+			{ src: '7.jpg' },
+			{ src: '8.jpg' },
+			{ src: '9.jpg' },
+			{ src: '10.jpg' },
+			{ src: '11.jpg' },
+			{ src: '12.jpg' },
+			{ src: '13.jpg' },
+			{ src: '14.jpg' },
+			{ src: '15.jpg' },
+			{ src: '16.jpg' },
+			{ src: '17.jpg' },
+			{ src: '18.jpg' },
+			{ src: '19.jpg' },
+			{ src: '20.jpg' },
+			{ src: '21.jpg' },
+			{ src: '22.jpg' },
+			{ src: '23.jpg' },
+			{ src: '24.jpg' },
+			{ src: '25.jpg' },
+			{ src: '26.jpg' },
+			{ src: '27.jpg' },
+			{ src: '28.jpg' },
+			{ src: '29.jpg' },
+			{ src: '30.jpg' },
+			{ src: '200ff06c0e.jpg' },
+			{ src: '5b0b0c8119.jpg' },
+			{ src: '0e85d4fe6d.jpg' },
+			{ src: '1ef7ea6559.jpg' },
+			{ src: 'ed37a0925e.jpg' },
+			{ src: '73d310387e.jpg', url: 'http://www.mycodes.net', color: '#fff' }
+		]
+	);
+}, 500);
+</script>
+<div style="text-align:center;">
+<p>来源：<a href="http://www.mycodes.net/" target="_blank">源码之家</a></p>
+</div>
 </body>
 </html>
