@@ -10,14 +10,13 @@
  <audio id="bgaudio0" src="sj.mp3"></audio>
  <audio id="bgaudio1" src="xxx.mp3"></audio>
  <audio id="bgaudio2" src="ydt.mp3"></audio>
- <audio id="bgaudio3" src="sbdyq.mp3"></audio>
- <audio id="bgaudio4" src="xyblt.mp3"></audio>
+ <audio id="bgaudio3" src="xyblt.mp3"></audio>
 
 <script type="text/javascript">
 	radomPlay = function(){
 		var myDate = new Date();
 		var mySec = myDate.getSeconds();
-		var songID = 'bgaudio' + (mySec % 5);
+		var songID = 'bgaudio' + (mySec % 4);
 		Media = document.getElementById(songID); 
 
 		Media.play();
